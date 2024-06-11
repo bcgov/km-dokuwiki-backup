@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{.Values.backupcontainer.name}}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{.Values.backupcontainer.name}}
+  template:
+    metadata:
+      labels:
+        app: {{.Values.backupcontainer.name}}
+    spec:
+      containers:
+        - name: {{.Values.backupcontainer.name}}
+          image: {{.Values.backupcontainer.image}}
+          command:
+            {{- range .Values.backupcontainer.command }}
+            - "{{ . }}"
+            {{- end }}
+          resources:
+            requests:
+              cpu: {{.Values.backupcontainer.resources.requests.cpu}}
+              memory: {{.Values.backupcontainer.resources.requests.memory}}
+            limits:
+              cpu: {{.Values.backupcontainer.resources.limits.cpu}}
+              memory: {{.Values.backupcontainer.resources.limits.memory}}
+          livenessProbe:
+            exec:
+              command:
+                - cat
+                - /tmp/healthy
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          volumeMounts:
+            - name: backup-data
+              mountPath: /data
+      serviceAccountName: {{.Values.serviceAccount.name}}
+      volumes:
+        - name: backup-data
+          persistentVolumeClaim:
+            claimName: {{.Values.pvc.name}}

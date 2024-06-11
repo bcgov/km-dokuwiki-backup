@@ -1,0 +1,15 @@
+{{- if not .Values.pvc.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.pvc.name }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  storageClassName: {{ .Values.pvc.storageClass }}
+  accessModes: 
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: {{ .Values.pvc.storage }}
+{{- end }}

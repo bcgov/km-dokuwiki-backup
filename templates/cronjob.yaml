@@ -1,0 +1,119 @@
+{{- range $cronjob := .Values.cronjobs }}
+{{- if $cronjob.enabled }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{$cronjob.name}}-dokuwiki-backup
+spec:
+  schedule: {{$cronjob.schedule}}
+  successfulJobsHistoryLimit:
+    {{$cronjob.successfulJobsHistoryLimit}}
+  failedJobsHistoryLimit: {{$cronjob.failedJobsHistoryLimit}}
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: {{$cronjob.name}}-backup
+              image: {{$.Values.sharedCronjobConfig.image}}
+              command:
+                {{- range $.Values.sharedCronjobConfig.command }}
+                - "{{ . }}"
+                {{- end }}
+              args:
+                - |
+                  #!/bin/bash
+                  set -e
+
+                  # Configuration
+                  BACKUP_NAMESPACE="backup"        # Namespace for backup
+                  BACKUP_DIR="{{$.Values.sharedCronjobConfig.backupDirectory}}"     # Directory where backups will be stored
+                  DOKU_CONF="/bitnami/dokuwiki/conf"
+                  DOKU_DATA="/bitnami/dokuwiki/data"
+                  DOKU_LIB="/bitnami/dokuwiki/lib"
+                  BACKUP_TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+                  BACKUP_FILENAME="{{$.Values.sharedCronjobConfig.backupName}}-$BACKUP_TIMESTAMP.tar.gz"
+                  BACKUP_FILE="$BACKUP_DIR/$BACKUP_FILENAME"
+
+                  # Function to remove old backups except for the latest 7
+                  remove_old_backups() {
+                    mkdir -p "$BACKUP_DIR"
+                    find "$BACKUP_DIR" -type f \( -name '{{$.Values.sharedCronjobConfig.backupName}}-*.tar.gz' -o -name 'dw-backup-*.tar.bz2' \) -printf '%T@ %p\n' | sort -nr | sed -e '1,7d' | cut -d' ' -f2- | xargs rm -f
+                    if [ -e /bitnami/dokuwiki/data/deleted.files ]; then
+                      rm -rf /bitnami/dokuwiki/data/deleted.files
+                    fi
+                    if [ -e /bitnami/dokuwiki/data/media_attic/wiki/backup ]; then
+                      rm -rf /bitnami/dokuwiki/data/media_attic/wiki/backup
+                    fi
+                  }
+
+                  # Function to create a tar backup
+                  create_backup() {
+                    echo "Creating backup..."
+
+                    # Create a temporary directory for the backup
+                    TEMP_BACKUP_DIR=$(mktemp -d)
+                    
+                    # Add configuration files to the backup
+                    mkdir -p "$TEMP_BACKUP_DIR/conf"
+                    cp -r "$DOKU_CONF"/* "$TEMP_BACKUP_DIR/conf"
+                    
+                    # Add data files to the backup, excluding specific directories
+                    mkdir -p "$TEMP_BACKUP_DIR/data"
+                    find "$DOKU_DATA" -mindepth 1 -maxdepth 1 \( ! -name "log" -a ! -name "cache" -a ! -name "index" -a ! -name "locks" -a ! -name "tmp" -a ! -name "media_attic" -a ! -path "$DOKU_DATA/media/wiki/backup/*" \) -exec cp -r {} "$TEMP_BACKUP_DIR/data/" \;
+                    rm -rf "$TEMP_BACKUP_DIR/data/media/wiki/backup"  # Remove the backup folder
+
+                    # Add library files to the backup (excluding built-in plugins/templates)
+                    mkdir -p "$TEMP_BACKUP_DIR/lib"
+                    cp -r "$DOKU_LIB/tpl" "$TEMP_BACKUP_DIR/lib/tpl"
+                    cp -r "$DOKU_LIB/plugins" "$TEMP_BACKUP_DIR/lib/plugins"
+                    
+                    # Create the tarball
+                    tar -czf "$BACKUP_FILE" -C "$TEMP_BACKUP_DIR" .
+                    
+                    # Cleanup
+                    rm -rf "$TEMP_BACKUP_DIR"
+                    
+                    echo "Backup created at $BACKUP_FILE"
+                  }
+
+                  # Main script execution
+                  remove_old_backups
+                  create_backup
+
+                  # Log message for successful backup
+                  echo "Backup process completed successfully."
+                  echo "Copying files from dokuwiki to backup-pvc..."
+
+                  # Ensure the destination directory exists
+                  DEST_DIR="{{$.Values.sharedCronjobConfig.destinationBackupDirectory}}/{{$cronjob.name}}"
+                  mkdir -p "$DEST_DIR"
+
+                  # Copy new or changed files to the daily backup directory
+                  find "$BACKUP_DIR" -type f -newer "$DEST_DIR" -exec cp {} "$DEST_DIR/" \;
+
+                  echo "File copy completed."
+
+                  echo "Organizing backups."
+
+                  # Remove files older than {{$cronjob.daysToRetain}} days from the desination folder
+                  find "$DEST_DIR" -type f -daystart -mtime +{{$cronjob.daysToRetain}} -exec rm {} \;
+
+                  echo "Backups organized."
+              volumeMounts:
+                - name: dokuwiki-data
+                  mountPath: /bitnami/dokuwiki
+                - name: dokuwiki-storage
+                  mountPath: /destination
+          restartPolicy: Never
+          volumes:
+            - name: dokuwiki-data
+              persistentVolumeClaim:
+                claimName: {{$.Values.volumes.dokuwikiData.claimName}}
+            - name: dokuwiki-storage
+              persistentVolumeClaim:
+                claimName: {{$.Values.pvc.name}}
+          serviceAccountName: {{$.Values.serviceAccount.name}}
+{{- end }}
+{{- end }}
