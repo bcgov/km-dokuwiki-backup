@@ -90,8 +90,9 @@ spec:
                   DEST_DIR="{{$.Values.sharedCronjobConfig.destinationBackupDirectory}}/{{$cronjob.name}}"
                   mkdir -p "$DEST_DIR"
 
-                  # Copy new or changed files to the daily backup directory
-                  find "$BACKUP_DIR" -type f -newer "$DEST_DIR" -exec cp {} "$DEST_DIR/" \;
+                  # Copy the most recent backup file to the destination directory
+                  MOST_RECENT_FILE=$(find "$BACKUP_DIR" -type f -name '{{$.Values.sharedCronjobConfig.backupName}}-*.tar.gz' -print0 | xargs -0 ls -1t | head -n 1)
+                  cp "$MOST_RECENT_FILE" "$DEST_DIR/"
 
                   echo "File copy completed."
 
