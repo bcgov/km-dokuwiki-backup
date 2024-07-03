@@ -12,6 +12,13 @@ spec:
       containers:
         - name: {{$cronjob.name}}-backup
           image: {{$.Values.sharedCronjobConfig.image}}
+          resources:
+            requests:
+              cpu: {{$.Values.sharedCronjobConfig.resources.requests.cpu}}
+              memory: {{$.Values.sharedCronjobConfig.resources.requests.memory}}
+            limits:
+              cpu: {{$.Values.sharedCronjobConfig.resources.limits.cpu}}
+              memory: {{$.Values.sharedCronjobConfig.resources.limits.memory}}
           command: 
             {{- range $.Values.sharedCronjobConfig.command }}
             - "{{ . }}"
